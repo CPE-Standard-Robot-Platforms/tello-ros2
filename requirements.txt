@@ -15,3 +15,8 @@ opencv-python
 av
 numpy
 pyyaml
+
+# rqt_gui, launched by tello.launch.py, needs a Qt binding. apt installs PyQt5
+# into the system site-packages, which the virtualenv (include-system-site-packages
+# = false) cannot see, so it is pulled in here instead.
+PyQt5

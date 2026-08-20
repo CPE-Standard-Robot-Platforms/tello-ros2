@@ -9,7 +9,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE_ROOT="$(dirname "$(dirname "$REPO_ROOT")")"
 
+# colcon's generated setup.bash references variables such as COLCON_TRACE
+# without a default, which trips "set -u". Relax it just for the source.
+set +u
 # shellcheck disable=SC1091
 source "$WORKSPACE_ROOT/install/setup.bash"
+set -u
 
 ros2 launch tello tello.launch.py
