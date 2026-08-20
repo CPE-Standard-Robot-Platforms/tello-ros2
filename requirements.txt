@@ -2,21 +2,24 @@
 # alongside the system ROS 2 Jazzy Python packages (rclpy, sensor_msgs, etc, picked
 # up from /opt/ros/jazzy through PYTHONPATH).
 #
+# Versions are pinned to what was current and tested at the time of writing.
+# Bump them deliberately, not implicitly through a re-install.
+#
 # colcon-common-extensions must be installed inside the same virtualenv: colcon
 # embeds its own interpreter path in the console_scripts it generates, so building
 # with a system-wide colcon would make "ros2 run" launch nodes with the system
 # Python instead of the virtualenv, missing djitellopy, opencv-python and av.
-colcon-common-extensions
-catkin_pkg
-rospkg
-lark
-djitellopy
-opencv-python
-av
-numpy
-pyyaml
+colcon-common-extensions==0.3.0
+catkin_pkg==1.1.0
+rospkg==1.6.1
+lark==1.3.1
+djitellopy==2.5.0
+opencv-python==5.0.0.93
+av==18.1.0
+numpy==2.5.2
+pyyaml==6.0.3
 
 # rqt_gui, launched by tello.launch.py, needs a Qt binding. apt installs PyQt5
 # into the system site-packages, which the virtualenv (include-system-site-packages
 # = false) cannot see, so it is pulled in here instead.
-PyQt5
+PyQt5==5.15.11
