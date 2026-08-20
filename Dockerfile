@@ -9,14 +9,15 @@
 # Build:
 #   docker build -t tello-ros2 .
 #
-# Run (the Tello talks UDP to its own WiFi access point, hence --network host;
-# --ipc host is needed too so Fast DDS's shared memory transport can reach
-# nodes running on the host, otherwise topics discover each other but no
-# message ever arrives):
-#   docker run --rm -it --network host --ipc host tello-ros2
+# Run (the Tello talks UDP to its own WiFi access point, hence --network host).
+# The image ships fastdds_no_shm.xml, forcing plain UDPv4 for DDS: Fast DDS's
+# default shared memory transport does not reliably reach processes on the
+# host even with --ipc host (topics discover each other, but no message data
+# ever arrives), so it is disabled instead of relying on IPC namespace sharing:
+#   docker run --rm -it --network host tello-ros2
 #
 # Run the full stack (RViz, rqt) with a display forwarded from the host:
-#   docker run --rm -it --network host --ipc host -e DISPLAY="$DISPLAY" \
+#   docker run --rm -it --network host -e DISPLAY="$DISPLAY" \
 #       -v /tmp/.X11-unix:/tmp/.X11-unix tello-ros2 ros2 launch tello tello.launch.py
 
 FROM ros:jazzy-ros-base
@@ -45,6 +46,8 @@ RUN pip install --upgrade pip \
     && pip install -r /tmp/requirements.txt
 
 COPY . "$WORKSPACE/src/tello-ros2"
+
+ENV FASTRTPS_DEFAULT_PROFILES_FILE="$WORKSPACE/src/tello-ros2/fastdds_no_shm.xml"
 
 WORKDIR "$WORKSPACE"
 RUN source /opt/ros/jazzy/setup.bash \

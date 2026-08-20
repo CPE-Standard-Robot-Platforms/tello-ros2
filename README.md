@@ -124,17 +124,19 @@ Build the image from the repository root:
 docker build -t tello-ros2 .
 ```
 
-Run it. The Tello communicates over a UDP link on the drone's own WiFi network, so the container needs to share the host's network stack. It also needs to share the host's IPC namespace: ROS 2's default DDS implementation (Fast DDS) uses a shared memory transport between processes on the same machine, and without `--ipc host` the container gets its own isolated `/dev/shm`, so nodes on the host and in the container find each other through discovery but never actually receive each other's messages:
+Run it. The Tello communicates over a UDP link on the drone's own WiFi network, so the container needs to share the host's network stack:
 
 ```bash
-docker run --rm -it --network host --ipc host tello-ros2
+docker run --rm -it --network host tello-ros2
 ```
 
 By default the container launches `ros2 run tello tello`. Override the command to run something else, for example the full launch file with a display forwarded from the host:
 
 ```bash
-docker run --rm -it --network host --ipc host -e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix \
+docker run --rm -it --network host -e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix \
     tello-ros2 ros2 launch tello tello.launch.py
 ```
+
+Topics published from inside the container reaching subscribers on the host (or another container) needs one more thing: ROS 2's default DDS implementation, Fast DDS, prefers a shared memory transport between processes on the same machine, backed by `/dev/shm`. A container does not reliably share that with the host, even with `docker run --ipc host`: topics still discover each other and report a matched publisher and subscriber, but no message data ever arrives, which is confusing to debug since discovery looks fully successful. The image works around this by shipping `fastdds_no_shm.xml` and setting `FASTRTPS_DEFAULT_PROFILES_FILE` to it, forcing plain UDPv4 for every DDS participant started in the container, so this is handled automatically and `--ipc host` is not needed.
 
 See the comments in the `Dockerfile` for details on how the image is built (system ROS 2 install plus an internal virtualenv, same approach as the host Quickstart above).
