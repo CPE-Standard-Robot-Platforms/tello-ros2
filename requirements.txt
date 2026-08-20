@@ -1,0 +1,17 @@
+# Python dependencies for the tello-ros2 packages, installed inside a virtualenv
+# alongside the system ROS 2 Jazzy Python packages (rclpy, sensor_msgs, etc, picked
+# up from /opt/ros/jazzy through PYTHONPATH).
+#
+# colcon-common-extensions must be installed inside the same virtualenv: colcon
+# embeds its own interpreter path in the console_scripts it generates, so building
+# with a system-wide colcon would make "ros2 run" launch nodes with the system
+# Python instead of the virtualenv, missing djitellopy, opencv-python and av.
+colcon-common-extensions
+catkin_pkg
+rospkg
+lark
+djitellopy
+opencv-python
+av
+numpy
+pyyaml

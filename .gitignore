@@ -1,16 +1,12 @@
-
-workspace/install/
-workspace/build/
-workspace/src/__pycache__/
-workspace/src/build/
-workspace/src/lib/
-workspace/src/install/
-
-.vscode/.ropeproject/
-
+build/
+install/
 log/
 libs/
 
+.venv/
+__pycache__/
+*.egg-info/
+.vscode/.ropeproject/
 
 *.pyc
 *.bag
