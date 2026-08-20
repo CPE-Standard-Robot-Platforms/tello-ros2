@@ -1,232 +1,140 @@
 # DJI Tello ROS2
-- [DJI Tello](https://www.ryzerobotics.com/tello) driver for ROS 2 based on [DJITelloPy](https://github.com/damiafuentes/DJITelloPy) that uses the [official SDK](https://github.com/dji-sdk/Tello-Python) for the drone.
-- Can be used to control multiple drones both using the swarm functionality (only for [Tello EDU](https://www.ryzerobotics.com/tello-edu)) or using multiple WLAN with regular [Tello](https://www.ryzerobotics.com/tello) drones.
-- This project was developed as a way of learning ROS 2 and evaluate the viability of moving other in progress projects from ROS 1 to ROS 2.
-- Ii is recommended to update the Tello firmware to the latest version available 
-- Project workspace is divided into sub-workspaces that contain different logic.
-  - `tello` package is the main package, includes access to the drone information, camera image and  control.
-  - `tello_msg` package defines custom messages to access specific Tello data.
-    - Defines the `TelloStatus`, `TelloID` and `TelloWifiConfig` messages 
-  - `tello_control` package is a sample control package that displays the drone image and provides keyboard control.
-    - T used for takeoff, L to land the drone, F to flip forward, E for emergency stop, WASD and arrows to control the drone movement.
+
+- [DJI Tello](https://www.ryzerobotics.com/tello) driver for ROS 2 based on [DJITelloPy](https://github.com/damiafuentes/DJITelloPy), using the [official SDK](https://github.com/dji-sdk/Tello-Python) for the drone.
+- Targets ROS 2 Jazzy on Ubuntu 24.04, and is meant to be built inside a Python virtualenv (see Quickstart below).
+- Can control multiple drones, either using the swarm functionality (only for [Tello EDU](https://www.ryzerobotics.com/tello-edu)) or by running one node per drone on separate WLANs with regular [Tello](https://www.ryzerobotics.com/tello) drones.
+- It is recommended to update the Tello firmware to the latest version available.
 
 <img src="readme/ros.jpg" width="380"><img src="readme/drone_b.jpg" width="380">
 
-- Bellow is the list of topics published and consumed by the `tello` package
-- The list of published topics alongside their description and frequency. These topics are only published when some node subscribed to them, otherwise they are not processed.
+## Packages
 
-| Topic        | Type                           | Description                                                  | Frequency |
-| ------------ | ------------------------------ | ------------------------------------------------------------ | --------- |
-| /image_raw   | sensor_msgs/Image              | Image of the Tello camera                                    | 30hz      |
-| /camera_info | sensor_msgs/CameraInfo         | Camera information (size, calibration, etc)                  | 2hz       |
-| /status      | tello_msg/TelloStatus          | Status of the drone (wifi strength, batery, temperature, etc) | 2hz       |
-| /id          | tello_msg/TelloID              | Identification of the drone w/ serial number and firmware    | 2hz       |
-| /imu         | sensor_msgs/Imu                | Imu data capture from the drone                              | 10hz      |
-| /battery     | sensor_msgs/BatteryState       | Battery status                                               | 2hz       |
-| /temperature | sensor_msgs/Temperature        | Temperature of the drone                                     | 2hz       |
-| /odom        | nav_msgs/Odometry              | Odometry (only orientation and speed)                        | 10hz      |
-| /tf          | geometry_msgs/TransformStamped | Transform from base to drone tf, prefer a external publisher. | 10hz      |
+| Package         | Type          | Description                                                                 |
+| ---------------- | ------------- | ---------------------------------------------------------------------------- |
+| `tello`         | ament_python | Driver node: connects to the drone, publishes telemetry and camera images, exposes control topics. |
+| `tello_msg`     | ament_cmake  | Custom messages: `TelloStatus`, `TelloID`, `TelloWifiConfig`.                |
+| `tello_control` | ament_cmake  | Sample keyboard teleop node (OpenCV window driven).                          |
 
-- The list of topics subscribed by the node, these topics can be renamed in the launch file.
+## Quickstart (virtualenv)
 
-| Topic        | Type                      | Description                                                  |
-| ------------ | ------------------------- | ------------------------------------------------------------ |
-| \emergency   | std_msgs/Empty            | When received the drone instantly shuts its motors off (even when flying), used for safety purposes |
-| \takeoff     | std_msgs/Empty            | Drone takeoff message, make sure that the drone has space to takeoff safely before usage. |
-| \land        | std_msgs/Empty            | Land the drone.                                              |
-| \control     | geometry_msgs/Twist       | Control the drone analogically. Linear values should range from -100 to 100, speed can be set in x, y, z for movement in 3D space. Angular rotation is performed in the z coordinate. Coordinates are relative to the drone position (x always relative to the direction of the drone) |
-| \flip        | std_msgs/String           | Do a flip with the drone in a direction specified. Possible directions can be "r" for right, "l" for left, "f" for forward or "b" for backward. |
-| \wifi_config | tello_msg/TelloWifiConfig | Configure the wifi credential that should be used by the drone. The drone will be restarted after the credentials are changed. |
+This project keeps its Python dependencies (`djitellopy`, `opencv-python`, `av`, `numpy`, ...) in a virtualenv rather than mixed into the system Python, so it does not depend on whatever versions happen to be packaged for ROS 2 Jazzy. `colcon` itself must be installed inside that same virtualenv: colcon embeds its own interpreter path into the executables it generates, so running colcon from outside the virtualenv makes `ros2 run` launch nodes with the system Python instead, missing the drone dependencies entirely.
 
-- The list of parameters used to configure the node. These should be defined on a launch file.
+Clone this repository as `<ros2_ws>/src/tello-ros2` (with `<ros2_ws>` any ROS 2 workspace directory of your choice), then:
 
-| Name             | Type    | Description                                                  | Default        |
-| ---------------- | ------- | ------------------------------------------------------------ | -------------- |
-| connect_timeout  | float   | Time  (seconds) until the node is killed if connection to the drone is not available. | 10.0           |
-| tello_ip         | string  | IP of the tello drone. When using multiple drones multiple nodes with different IP can be launched. | '192.168.10.1' |
-| tf_base          | string  | Base tf to be used when publishing data                      | 'map'          |
-| tf_drone         | string  | Name of the drone tf to use when publishing data             | 'drone'        |
-| tf_pub           | boolean | If true a static TF from tf_base to tf_drone is published    | False          |
-| camera_info_file | string  | Path to a YAML camera calibration file (obtained with the calibration tool) | ''             |
+```bash
+# System dependencies (build tools, RViz, rqt, ...), once per machine
+sudo ./scripts/install.sh
 
+# Python virtualenv with djitellopy, opencv-python, av, numpy and colcon
+./scripts/setup_venv.sh
+source .venv/bin/activate
 
+# Build and run
+./scripts/build.sh
+./scripts/run.sh
+```
 
-### Camera Calibration
+`scripts/build.sh` runs `colcon build --symlink-install --packages-select tello tello_control tello_msg` from the workspace root. `scripts/run.sh` sources the workspace and launches `tello.launch.py` (driver, keyboard control, rqt, rviz2 and a static TF publisher).
 
-- To allow the drone to be used for 3D vision tasks, as for example monocular SLAM the camera should be first calibrated.
-- A sample calibration file is provided with parameters captures from the drone used for testing but it is recommended to perform individual calibrations for each drone used.
-- Calibration can be achieved using the [camera_calibration](https://navigation.ros.org/tutorials/docs/camera_calibration.html) package. Calibration pattern can be generated using the [calib.io pattern generator](https://calib.io/pages/camera-calibration-pattern-generator) tool.
+To iterate manually instead of using the scripts:
+
+```bash
+source .venv/bin/activate
+cd <ros2_ws>
+colcon build --symlink-install --packages-select tello tello_control tello_msg
+source install/setup.bash
+ros2 launch tello tello.launch.py
+```
+
+## Docker
+
+A `Dockerfile` is provided to run the driver without installing ROS 2 or a virtualenv on the host. See the [Docker section](#running-with-docker) below.
+
+## Topics published by `tello`
+
+Published topics are only computed and sent when something is subscribed to them.
+
+| Topic        | Type                            | Description                                                   | Frequency |
+| ------------ | -------------------------------- | --------------------------------------------------------------- | --------- |
+| /image_raw   | sensor_msgs/Image               | Image from the Tello camera                                    | 30 Hz     |
+| /camera_info | sensor_msgs/CameraInfo          | Camera calibration (size, distortion, etc)                     | 2 Hz      |
+| /status      | tello_msg/TelloStatus           | Drone status (wifi strength, battery, temperature, etc)        | 2 Hz      |
+| /id          | tello_msg/TelloID               | Drone identification (serial number, SDK version)              | 2 Hz      |
+| /imu         | sensor_msgs/Imu                 | IMU data from the drone                                        | 10 Hz     |
+| /battery     | sensor_msgs/BatteryState        | Battery status                                                  | 2 Hz      |
+| /temperature | sensor_msgs/Temperature         | Drone temperature                                               | 2 Hz      |
+| /odom        | nav_msgs/Odometry               | Odometry (orientation and speed only)                          | 10 Hz     |
+| /tf          | geometry_msgs/TransformStamped  | Transform from `tf_base` to `tf_drone`, only if `tf_pub` is set | 10 Hz     |
+
+## Topics subscribed by `tello`
+
+These can be renamed in the launch file with `remappings`.
+
+| Topic        | Type                       | Description                                                                                                                                              |
+| ------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /emergency   | std_msgs/Empty             | Instantly cuts the motors, even mid flight. Safety use only.                                                                                              |
+| /takeoff     | std_msgs/Empty             | Takeoff. Make sure the drone has room to take off safely first.                                                                                           |
+| /land        | std_msgs/Empty             | Land the drone.                                                                                                                                            |
+| /control     | geometry_msgs/Twist        | Analog control. Linear values range from -100 to 100 for x, y, z movement. Angular rotation is applied on z. Coordinates are relative to the drone facing. |
+| /flip        | std_msgs/String             | Flip in a direction: `r` right, `l` left, `f` forward, `b` backward.                                                                                       |
+| /wifi_config | tello_msg/TelloWifiConfig  | Set the wifi credentials the drone should use. The drone restarts after the change.                                                                       |
+
+## Parameters
+
+| Name              | Type    | Description                                                          | Default          |
+| ------------------ | ------- | ----------------------------------------------------------------------- | ------------------ |
+| connect_timeout   | float   | Seconds to wait for the drone to respond before failing a command.   | 10.0              |
+| tello_ip          | string  | IP of the drone. Use different values to run several drones at once. | '192.168.10.1'    |
+| tf_base           | string  | Base frame used when publishing TF and odometry data.                | 'map'             |
+| tf_drone          | string  | Drone frame used when publishing TF and sensor data.                 | 'drone'           |
+| tf_pub            | boolean | Publish a TF from `tf_base` to `tf_drone`.                            | False             |
+| camera_info_file  | string  | Path to a camera calibration YAML file. Empty uses the bundled sample.| ''                |
+
+## Keyboard control (`tello_control`)
+
+`T` takeoff, `L` land, `F` flip forward, `E` emergency stop, `WASD` and arrow keys to move.
+
+## Camera calibration
+
+A sample calibration file, captured on the maintainers' test drone, is bundled at `tello/resource/ost.yaml`. Every drone is slightly different, so calibrate your own for anything vision-sensitive (monocular SLAM, AR markers, ...):
 
 ```bash
 ros2 run camera_calibration cameracalibrator --size 7x9 --square 0.16 image:=/image_raw camera:=/camera_info
 ```
 
-- Take as many frame as possible and measure your check board grid size to ensure good accuracy in the process. When the process ends a `calibrationdata.tar.gz` will be created in the `/tmp` path.
+Take as many frames as possible and measure your checkerboard accurately. A `calibrationdata.tar.gz` is produced in `/tmp` once done; convert it to the `ost.yaml` format expected by `camera_info_file`.
 
 <img src="readme/calibration.jpg" width="380">
 
+## Overheating
 
-
-### Launch File
-
-- Launch files in ROS2 are now defined using python code. To launch the main node of the project add the following code to your `launch.py` file.
-
-```python
-Node(
-    package='tello',
-    executable='tello',
-    namespace='/',
-    name='tello',
-    parameters=[
-        {'tello_ip': '192.168.10.1'}
-    ],
-    remappings=[
-        ('/image_raw', 'camera')
-    ],
-    respawn=True
-)
-```
-
-
-
-### Overheating Problems
-
-- The motor drivers in the DJI Tello overheat after a while when the drone is not flying. To cool down the drivers i have removed the plastic section on top of the heat spreader (as seen in the picture).
-- If you are comfortable with leaving the PCB exposed removing the plastic cover should result in even better thermals.
-- If possible place the drone on top of an old computer fan or use a laptop cooler to prevent the drone from shutting down due to overheating.
+The motor drivers overheat after a while when the drone is powered on but not flying. Removing the plastic cover over the heat spreader (pictured) helps a lot; placing the drone on a laptop cooler or an old computer fan also helps if you are running it on a bench for a while.
 
 <img src="readme/drone_a.jpg" width="380">
 
-### Install
+## Visual SLAM (optional, advanced)
 
-- To install the driver download the code from git, install dependencies using the `script/install.sh` script.
-- After all dependencies are installed build the code and and install using `colcon` as usual or use the `script/build.sh` and `script/run.sh` to test the code.
+The drone's camera and IMU can be used for visual SLAM with [ORB-SLAM2](https://github.com/raulmur/ORB_SLAM2). This is not part of the default build (`slam/src/orbslam2` carries a `COLCON_IGNORE` marker) since it needs the external `ORB_SLAM2` library, which is not packaged for Jazzy. See [SLAM.md](SLAM.md) and `scripts/orbslam.sh` for the manual build steps, and remove the `COLCON_IGNORE` marker once the dependency is installed.
 
+## Running with Docker
 
-
-### Visual SLAM
-
-- The drone is equipped with a IMU and a camera that can be used for visual SLAM in order to obtain the location of the drone and a map of the environment.
-- [ORB SLAM 2](https://github.com/raulmur/ORB_SLAM2) is a monocular visual based algorithm for SLAM that can be easily integrated with the Tello drone using this package.
-- The wrapper provided alongside with this repository is based on the [alsora/ros2-ORB-SLAM2](https://github.com/alsora/ros2-ORB_SLAM2/tree/f890df18983ead8cd2ae36676036d535ee52951b) project using the [alsora/ORB_SLAM2](alsora/ORB_SLAM2) modified version of ORB Slam that does not depend on pangolin.
-- To run the monocular SLAM node after installing all dependencies and building the package run.
+Build the image from the repository root:
 
 ```bash
-ros2 run ros2_orbslam mono <VOCABULARY FILE> <CONFIG_FILE>
+docker build -t tello-ros2 .
 ```
 
-- The vocabulary file can be obtained from the ORB_SLAM2 repository ( `ORB_SLAM2/Vocabulary/ORBvoc.txt`).
-- Sample configuration files can be found inside the package at `orbslam2/src/monocular/config.yaml` for monocular SLAM.
-
-
-
-### Setup ROS 2 Foxy
-
-- Run the install script to setup the ROS 2 (Foxy Fitzroy) environment. 
-- Check the [ROS2 Tutorials](https://index.ros.org/doc/ros2/Tutorials/) page to learn how to setup workspace and create packages.
-
-##### Workspace
-
-- To install dependencies of the packages available in a workspace directory `src` run `rosdep install -i --from-path src --rosdistro foxy -y`
-- To build workspace you can use the command `colcon build`,  some useful arguments for `colcon build`:
-
-  - `--packages-up-to` builds the package you want, plus all its dependencies, but not the whole workspace (saves time)
-  - `--symlink-install` saves you from having to rebuild every time you tweak python scripts
-  - `--event-handlers console_direct+` shows console output while building (can otherwise be found in the `log` directory)
-
-##### Packages
-
-- To create a new ROS2 package (C++ or Python) for development move to the `src` package and run
+Run it. The Tello communicates over a UDP link on the drone's own WiFi network, so the container needs to share the host's network stack:
 
 ```bash
-# CPP Package
-ros2 pkg create --build-type ament_cmake --node-name <node_name> <package_name>
-
-# Python Package
-ros2 pkg create --build-type ament_python --node-name <node_name> <package_name>
+docker run --rm -it --network host tello-ros2
 ```
 
-##### Tools
-
-- `rqt_topic` Used to monitor topics and their values in a list
-- `rqt_graph` Draw the graph of connection between the currently active nodes and explore communication between them
-- `rviz` Visualize topics in 3D space.
-
-##### Bags
-
-- Bags can be used to record data from topics that can be later replayed for off-line testing. Bags can be manipulated using the `ros2 bag` command. To 
+By default the container launches `ros2 run tello tello`. Override the command to run something else, for example the full launch file with a display forwarded from the host:
 
 ```bash
-# Record a bag containing data from some topics into a file
-ros2 bag record -o <bag_file_name> /turtle1/cmd_vel /turtle1/pose ...
-
-# Check the content of a bag run the command
-ros2 bag info <bag_file_name>
-
-# Replay the content of some topics recorded into a bag file
- ros2 bag play <bag_file_name>
+docker run --rm -it --network host -e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix \
+    tello-ros2 ros2 launch tello tello.launch.py
 ```
 
-- To play ROS 1 bags in ROS 2 you will need to first install ROS 1, and the ROS bag adapter plugin. The the bags can be run using the command.
-
-```bash
-ros2 bag play -s rosbag_v2 <path_to_bagfile>
-```
-
-##### Camera calibration
-
-- Calibration files provided were obtained using our test drone.
-- To get your own calibration file use the [ROS camera calibration tool]()
-
-
-
-### Ubuntu Based Linux Distros
-
-- When installing on ubuntu based distros it might be required to change the distro codename so that the `lsb_release -cs` command returns the correct ubuntu base distribution.
-- To change the output of the `lsb_release` command edit the `/etc/os-release` file. For ubuntu 20.04 the codename should be `focal`.
-- Edit the file to contain the value `UBUNTU_CODENAME=focal`.
-
-
-
-### Windows Subsystem for Linux (WSL)
-
-- Install WSL2 from the windows store or using the commands bellow, install Ubuntu 20.04 as the SO over the WSL overlay.
-
-```powershell
-# Install WSL 2
-Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux
-
-# Enable WSL 2
-dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
-
-# Check WSL version
-wsl.exe --set-default-version 2
-wsl -l -v
-```
-
-- Install a [VcXsrv Windows X Server](https://sourceforge.net/projects/vcxsrv/) to be used as a X11 display server required to run GUI applications.
-  - "Native opengl" unchecked
-  - "Disable access control" checked
-- Create a shortcut for VcXSrv with the following parameters
-
-```powershell
-"C:\Program Files\VcXsrv\vcxsrv.exe" :0 -ac -terminate -lesspointer -multiwindow -clipboard -wgl -dpi auto
-```
-
-- To enable the access to the installed server add the display address to the `.bashrc` file
-
-```bash
-export DISPLAY="`grep nameserver /etc/resolv.conf | sed 's/nameserver //'`:0"
-export LIBGL_ALWAYS_INDIRECT=0
-```
-
-- If you are using Visual Studio Code as and IDE you can configure for [remote WSL development](https://code.visualstudio.com/docs/cpp/config-wsl), allowing to debug code and interact with the WSL terminal.
-- If you require CUDA acceleration you can also install [NVidia CUDA drivers for WSL2](https://developer.nvidia.com/blog/announcing-cuda-on-windows-subsystem-for-linux-2/)
-
-- If you get `Clock skew detected. Your build may be incomplete.` while compiling the code run the following commands or install the [wsl-clock](https://github.com/stuartleeks/wsl-clock) tool to automatically fix the clock drift problems.
-
-```bash
-sudo apt install ntpdate
-sudo ntpdate time.windows.com
-```
-
+See the comments in the `Dockerfile` for details on how the image is built (system ROS 2 install plus an internal virtualenv, same approach as the host Quickstart above).
