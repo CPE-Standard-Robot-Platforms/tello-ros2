@@ -124,16 +124,16 @@ Build the image from the repository root:
 docker build -t tello-ros2 .
 ```
 
-Run it. The Tello communicates over a UDP link on the drone's own WiFi network, so the container needs to share the host's network stack:
+Run it. The Tello communicates over a UDP link on the drone's own WiFi network, so the container needs to share the host's network stack. It also needs to share the host's IPC namespace: ROS 2's default DDS implementation (Fast DDS) uses a shared memory transport between processes on the same machine, and without `--ipc host` the container gets its own isolated `/dev/shm`, so nodes on the host and in the container find each other through discovery but never actually receive each other's messages:
 
 ```bash
-docker run --rm -it --network host tello-ros2
+docker run --rm -it --network host --ipc host tello-ros2
 ```
 
 By default the container launches `ros2 run tello tello`. Override the command to run something else, for example the full launch file with a display forwarded from the host:
 
 ```bash
-docker run --rm -it --network host -e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix \
+docker run --rm -it --network host --ipc host -e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix \
     tello-ros2 ros2 launch tello tello.launch.py
 ```
 
