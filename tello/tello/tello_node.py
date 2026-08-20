@@ -216,7 +216,8 @@ class TelloNode(Node):
             if frame is None:
                 return
 
-            msg = frame_to_image_msg(frame, 'bgr8')
+            # djitellopy decodes frames through PyAV's Image.to_image(), which is RGB, not BGR.
+            msg = frame_to_image_msg(frame, 'rgb8')
             msg.header.frame_id = self.tf_drone
             self.pub_image_raw.publish(msg)
 
