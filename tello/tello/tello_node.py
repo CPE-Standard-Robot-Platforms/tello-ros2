@@ -43,6 +43,7 @@ class TelloNode(Node):
             self.camera_info_file = share_directory + '/ost.yaml'
 
         self.camera_info = load_camera_info(self.camera_info_file)
+        self.tello_id = None
 
         Tello.TELLO_IP = self.tello_ip
         Tello.RESPONSE_TIMEOUT = int(self.connect_timeout)
@@ -76,12 +77,22 @@ class TelloNode(Node):
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self) if self.tf_pub else None
 
     def _setup_subscribers(self):
-        self.create_subscription(Empty, 'emergency', self._on_emergency, 1)
-        self.create_subscription(Empty, 'takeoff', self._on_takeoff, 1)
-        self.create_subscription(Empty, 'land', self._on_land, 1)
-        self.create_subscription(Twist, 'control', self._on_control, 1)
-        self.create_subscription(String, 'flip', self._on_flip, 1)
-        self.create_subscription(TelloWifiConfig, 'wifi_config', self._on_wifi_config, 1)
+        self.create_subscription(Empty, 'emergency', self._guarded(self._on_emergency), 1)
+        self.create_subscription(Empty, 'takeoff', self._guarded(self._on_takeoff), 1)
+        self.create_subscription(Empty, 'land', self._guarded(self._on_land), 1)
+        self.create_subscription(Twist, 'control', self._guarded(self._on_control), 1)
+        self.create_subscription(String, 'flip', self._guarded(self._on_flip), 1)
+        self.create_subscription(
+            TelloWifiConfig, 'wifi_config', self._guarded(self._on_wifi_config), 1)
+
+    def _guarded(self, callback):
+        """Wrap a subscription callback so a failed drone command is logged instead of killing spin()."""
+        def wrapper(msg):
+            try:
+                callback(msg)
+            except Exception as error:  # noqa: BLE001 - a failed command must not kill the node mid flight
+                self.get_logger().error(f'Tello: {callback.__name__} failed: {error}')
+        return wrapper
 
     def _get_orientation_quaternion(self):
         deg_to_rad = 3.141592653589793 / 180.0
@@ -192,15 +203,22 @@ class TelloNode(Node):
                 msg.lowest_temperature = self.tello.get_lowest_temperature()
                 msg.temperature = self.tello.get_temperature()
 
-                msg.wifi_snr = str(self.tello.query_wifi_signal_noise_ratio())
+                # Not queried: wifi? is a command round trip that runs concurrently with the
+                # takeoff/land/flip callbacks, and djitellopy hands each response to whichever
+                # caller reads first, so the two would steal each other's replies.
+                msg.wifi_snr = ''
 
                 self.pub_status.publish(msg)
 
             if self.pub_id.get_subscription_count() > 0:
-                msg = TelloID()
-                msg.sdk_version = self.tello.query_sdk_version()
-                msg.serial_number = self.tello.query_serial_number()
-                self.pub_id.publish(msg)
+                # sdk? and sn? never change but each costs a command round trip (up to the
+                # response timeout when the drone does not answer), so query them only once.
+                if self.tello_id is None:
+                    msg = TelloID()
+                    msg.sdk_version = self.tello.query_sdk_version()
+                    msg.serial_number = self.tello.query_serial_number()
+                    self.tello_id = msg
+                self.pub_id.publish(self.tello_id)
 
             if self.pub_camera_info.get_subscription_count() > 0:
                 self.pub_camera_info.publish(build_camera_info_msg(self.camera_info))
