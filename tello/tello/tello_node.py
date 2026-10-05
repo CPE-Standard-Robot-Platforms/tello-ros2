@@ -19,20 +19,37 @@ from tello.conversions import euler_to_quaternion, frame_to_image_msg
 from tello_msg.msg import TelloStatus, TelloID, TelloWifiConfig
 
 
-class _ConfigurableTimeoutTello(Tello):
-    """Tello whose default response timeout can be set per instance.
+class _SafeTello(Tello):
+    """Tello with a per-instance response timeout and one reply-awaiting command at a time.
 
     djitellopy binds RESPONSE_TIMEOUT as a default argument when the module is imported, so
     assigning Tello.RESPONSE_TIMEOUT afterwards has no effect. Commands given an explicit
     timeout (takeoff uses TAKEOFF_TIMEOUT) keep it.
+
+    djitellopy also pushes every reply into one shared list and hands the oldest one to whoever
+    reads next, without matching it to its command. A reply left over in that list (a late
+    reply after a timeout, or the extra 'ok' the drone sends after 'error' when told to land
+    while already on the ground) would be given to the next command, and every later command
+    would then get the reply meant for the previous one. So leftovers are dropped before each
+    command, under a lock so that two threads never wait for a reply at the same time.
     """
 
     response_timeout = Tello.RESPONSE_TIMEOUT
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._command_lock = threading.Lock()
+
     def send_command_with_return(self, command, timeout=None):
         if timeout is None:
             timeout = self.response_timeout
-        return super().send_command_with_return(command, timeout=timeout)
+        with self._command_lock:
+            responses = self.get_own_udp_object()['responses']
+            if responses:
+                stale = [r.decode('utf-8', errors='replace').strip() for r in responses]
+                responses.clear()
+                Tello.LOGGER.warning(f'Discarding stale replies before {command!r}: {stale}')
+            return super().send_command_with_return(command, timeout=timeout)
 
     def send_control_command(self, command, timeout=None):
         if timeout is None:
@@ -70,7 +87,7 @@ class TelloNode(Node):
         self.get_logger().info('Tello: Connecting to drone')
         # retry_count=1: djitellopy otherwise resends a command whose reply is not 'ok', which
         # can relaunch a takeoff on a drone that was just stopped by an emergency.
-        self.tello = _ConfigurableTimeoutTello(host=self.tello_ip, retry_count=1)
+        self.tello = _SafeTello(host=self.tello_ip, retry_count=1)
         # djitellopy type-checks timeouts as int.
         self.tello.response_timeout = int(self.connect_timeout)
         self.tello.connect()
