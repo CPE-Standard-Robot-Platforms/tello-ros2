@@ -18,6 +18,27 @@ from tello.conversions import euler_to_quaternion, frame_to_image_msg
 from tello_msg.msg import TelloStatus, TelloID, TelloWifiConfig
 
 
+class _ConfigurableTimeoutTello(Tello):
+    """Tello whose default response timeout can be set per instance.
+
+    djitellopy binds RESPONSE_TIMEOUT as a default argument when the module is imported, so
+    assigning Tello.RESPONSE_TIMEOUT afterwards has no effect. Commands given an explicit
+    timeout (takeoff uses TAKEOFF_TIMEOUT) keep it.
+    """
+
+    response_timeout = Tello.RESPONSE_TIMEOUT
+
+    def send_command_with_return(self, command, timeout=None):
+        if timeout is None:
+            timeout = self.response_timeout
+        return super().send_command_with_return(command, timeout=timeout)
+
+    def send_control_command(self, command, timeout=None):
+        if timeout is None:
+            timeout = self.response_timeout
+        return super().send_control_command(command, timeout=timeout)
+
+
 class TelloNode(Node):
     """Publishes telemetry and camera data from a DJI Tello drone and exposes control topics."""
 
@@ -45,11 +66,10 @@ class TelloNode(Node):
         self.camera_info = load_camera_info(self.camera_info_file)
         self.tello_id = None
 
-        Tello.TELLO_IP = self.tello_ip
-        Tello.RESPONSE_TIMEOUT = int(self.connect_timeout)
-
         self.get_logger().info('Tello: Connecting to drone')
-        self.tello = Tello()
+        self.tello = _ConfigurableTimeoutTello(host=self.tello_ip)
+        # djitellopy type-checks timeouts as int.
+        self.tello.response_timeout = int(self.connect_timeout)
         self.tello.connect()
         self.get_logger().info('Tello: Connected to drone')
 
@@ -227,9 +247,13 @@ class TelloNode(Node):
 
     def _start_video_capture(self, rate=1.0 / 30.0):
         self.tello.streamon()
+        frame_read = self.tello.get_frame_read()
 
         def body():
-            frame_read = self.tello.get_frame_read()
+            # Decoding keeps running in djitellopy's own thread; only skip the conversion and copy.
+            if self.pub_image_raw.get_subscription_count() == 0:
+                return
+
             frame = frame_read.frame
             if frame is None:
                 return
