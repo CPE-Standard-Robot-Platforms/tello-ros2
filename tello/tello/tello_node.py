@@ -9,6 +9,7 @@ from ament_index_python.packages import get_package_share_directory
 from djitellopy import Tello
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from sensor_msgs.msg import Image, Imu, BatteryState, Temperature, CameraInfo
 from std_msgs.msg import Empty, String
@@ -67,7 +68,9 @@ class TelloNode(Node):
         self.tello_id = None
 
         self.get_logger().info('Tello: Connecting to drone')
-        self.tello = _ConfigurableTimeoutTello(host=self.tello_ip)
+        # retry_count=1: djitellopy otherwise resends a command whose reply is not 'ok', which
+        # can relaunch a takeoff on a drone that was just stopped by an emergency.
+        self.tello = _ConfigurableTimeoutTello(host=self.tello_ip, retry_count=1)
         # djitellopy type-checks timeouts as int.
         self.tello.response_timeout = int(self.connect_timeout)
         self.tello.connect()
@@ -97,13 +100,26 @@ class TelloNode(Node):
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self) if self.tf_pub else None
 
     def _setup_subscribers(self):
-        self.create_subscription(Empty, 'emergency', self._guarded(self._on_emergency), 1)
-        self.create_subscription(Empty, 'takeoff', self._guarded(self._on_takeoff), 1)
-        self.create_subscription(Empty, 'land', self._guarded(self._on_land), 1)
-        self.create_subscription(Twist, 'control', self._guarded(self._on_control), 1)
-        self.create_subscription(String, 'flip', self._guarded(self._on_flip), 1)
+        # takeoff/land/flip block until the drone answers (several seconds). They share one group
+        # so only one runs at a time, while emergency and control, which djitellopy sends without
+        # waiting for a reply, get their own group and are never queued behind a maneuver.
+        # Requires a multi-threaded executor (see node.py).
+        maneuvers = MutuallyExclusiveCallbackGroup()
+        immediate = MutuallyExclusiveCallbackGroup()
+
         self.create_subscription(
-            TelloWifiConfig, 'wifi_config', self._guarded(self._on_wifi_config), 1)
+            Empty, 'emergency', self._guarded(self._on_emergency), 1, callback_group=immediate)
+        self.create_subscription(
+            Twist, 'control', self._guarded(self._on_control), 1, callback_group=immediate)
+        self.create_subscription(
+            Empty, 'takeoff', self._guarded(self._on_takeoff), 1, callback_group=maneuvers)
+        self.create_subscription(
+            Empty, 'land', self._guarded(self._on_land), 1, callback_group=maneuvers)
+        self.create_subscription(
+            String, 'flip', self._guarded(self._on_flip), 1, callback_group=maneuvers)
+        self.create_subscription(
+            TelloWifiConfig, 'wifi_config', self._guarded(self._on_wifi_config), 1,
+            callback_group=maneuvers)
 
     def _guarded(self, callback):
         """Wrap a subscription callback so a failed drone command is logged instead of killing spin()."""
@@ -247,10 +263,14 @@ class TelloNode(Node):
 
     def _start_video_capture(self, rate=1.0 / 30.0):
         self.tello.streamon()
-        frame_read = self.tello.get_frame_read()
 
         def body():
-            # Decoding keeps running in djitellopy's own thread; only skip the conversion and copy.
+            # Called in the loop rather than once at startup so that a missing video stream is
+            # logged and retried instead of killing the node. djitellopy reuses the reader once
+            # it has started, and decoding keeps running in its own thread.
+            frame_read = self.tello.get_frame_read()
+
+            # Only skip the conversion and copy when nobody listens.
             if self.pub_image_raw.get_subscription_count() == 0:
                 return
 
